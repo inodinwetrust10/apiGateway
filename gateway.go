@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync/atomic"
 
 	"gopkg.in/yaml.v3"
 )
@@ -26,9 +27,10 @@ type ApiConfig struct {
 type Service struct {
 	Name       string   `yaml:"name"`
 	Route      string   `yaml:"route_pattern"`
-	Url        string   `yaml:"url"`
+	Urls       []string `yaml:"urls"`
 	Middleware []string `yaml:"middleware"`
-	proxy      *httputil.ReverseProxy
+	proxies    []*httputil.ReverseProxy
+	count      uint64
 }
 
 type MiddlewareWrapper func(next http.Handler) http.Handler
@@ -70,13 +72,19 @@ func NewGateway(cfg *Config) *Gateway {
 
 	for i := range cfg.Services {
 		currSer := &cfg.Services[i]
-
-		target, err := url.Parse(currSer.Url)
-		if err != nil {
+		// checked if there is any url provided for our service
+		if len(currSer.Urls) == 0 {
+			log.Printf("service %s does not have any url defined", currSer.Name)
 			return nil
 		}
-		currSer.proxy = httputil.NewSingleHostReverseProxy(target)
-
+		for i := 0; i < len(currSer.Urls); i++ {
+			target, err := url.Parse(currSer.Urls[i])
+			if err != nil {
+				return nil
+			}
+			proxy := httputil.NewSingleHostReverseProxy(target)
+			currSer.proxies = append(currSer.proxies, proxy)
+		}
 		gw.Ser[currSer.Route] = currSer
 	}
 
@@ -93,6 +101,12 @@ func (g *Gateway) findService(r *http.Request) *Service {
 	return nil
 }
 
+func (s *Service) NewProxy() *httputil.ReverseProxy {
+	newVal := atomic.AddUint64(&s.count, 1)
+
+	index := int(newVal % uint64(len(s.proxies)))
+	return s.proxies[index]
+}
 func (g *Gateway) handleGateway(w http.ResponseWriter, r *http.Request) {
 	service := g.findService(r)
 	if service == nil {
@@ -101,7 +115,7 @@ func (g *Gateway) handleGateway(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var curr http.Handler = service.proxy
+	var curr http.Handler = service.NewProxy()
 	for i := len(service.Middleware) - 1; i == 0; i-- {
 		middlewareName := service.Middleware[i]
 		middleware, ok := g.wrappers[middlewareName]
