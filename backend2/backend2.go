@@ -5,26 +5,25 @@ import (
 	"net/http"
 )
 
-func hello(w http.ResponseWriter, r *http.Request){
-	w.Header().Add("backend-2","true")
+func hello(w http.ResponseWriter, r *http.Request) {
+	w.Header().Add("backend-2", "true")
 	w.WriteHeader(http.StatusOK)
-
+	log.Print("hello product page")
 	w.Write([]byte("Hello from the backend-2"))
 }
 
-func main(){
-	router:=http.NewServeMux();
+func main() {
+	router := http.NewServeMux()
 
-	router.HandleFunc("/",hello)
+	router.HandleFunc("/", hello)
 
-	server:=&http.Server{
-		Addr: ":8082",
+	server := &http.Server{
+		Addr:    ":8082",
 		Handler: router,
 	}
 
-
-	err:=server.ListenAndServe()
-	if err!=nil{
+	err := server.ListenAndServe()
+	if err != nil {
 		log.Fatal("Error starting the server")
 	}
 }
